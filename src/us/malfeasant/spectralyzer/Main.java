@@ -1,5 +1,10 @@
 package us.malfeasant.spectralyzer;
 
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.LineUnavailableException;
+import javax.sound.sampled.TargetDataLine;
 import javax.swing.Box;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -18,7 +23,6 @@ public class Main {
 		};
 	
 	private static final Band[] bands = new Band[FREQ.length];
-	private static final JSlider[] sliders = new JSlider[FREQ.length];
 	
 	public static void main(String[] args) {
 		SwingUtilities.invokeLater(() -> buildGUI());
@@ -29,23 +33,54 @@ public class Main {
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		
 		Box hBox = Box.createHorizontalBox();
-		
-		// set up reference waveforms
 		for (int b = 0; b < FREQ.length; ++b) {
-			float step = (float) (2 * Math.PI * FREQ[b] / RATE);
-			bands[b] = new Band(step, SAMPLES);
-			
 			Box vBox = Box.createVerticalBox();
-			sliders[b] = new JSlider(JSlider.VERTICAL);
-			sliders[b].setEnabled(false);
-			vBox.add(sliders[b]);
-			JLabel label = new JLabel(Float.toString(FREQ[b]));
-			vBox.add(label);
+			JSlider slider = new JSlider(JSlider.VERTICAL);
+			slider.setEnabled(false);	// using this for output only
+			vBox.add(slider);
+			vBox.add(new JLabel(Float.toString(FREQ[b])));
 			hBox.add(vBox);
+			
+			float step = (float) (2 * Math.PI * FREQ[b] / RATE);
+			bands[b] = new Band(step, SAMPLES, slider);
 		}
+		
+		beginRecording();
 		
 		frame.add(hBox);
 		frame.pack();
 		frame.setVisible(true);
+	}
+	
+	private static void beginRecording() {
+		AudioFormat format = new AudioFormat(RATE, 8, 1, true, false);
+		DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+		
+		try {
+			TargetDataLine line = (TargetDataLine) AudioSystem.getLine(info);
+			line.open();
+			line.start();
+			
+			new Thread(new Runnable() {
+				@Override
+				public void run() {
+					byte[] buffer = new byte[SAMPLES];
+					while (!Thread.interrupted()) {
+						line.read(buffer, 0, buffer.length);
+						float[] asFloat = new float[SAMPLES];
+						for (int i=0; i < SAMPLES; ++i) {
+							asFloat[i] = buffer[i] / 128f;
+						}
+//						System.out.println(asFloat[0]);
+						for (Band b : bands) {
+							b.enqueue(asFloat);
+						}
+					}
+				}
+			}).start();
+		} catch (LineUnavailableException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 	}
 }
